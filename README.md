@@ -1,3 +1,6 @@
+Nothing special! Just wanted to make a Split DNS only install only
+Thanks Jorge!
+
 # Zimbra
 In this Repository you will find different Zimbra Scripts for install Zimbra Collaboration on an automated way
 
