@@ -1,6 +1,20 @@
 Nothing special! Just wanted to make a Split DNS only install only
 Thanks Jorge!
 
+
+# 2017-11-25
+Added ZimbraEasyInstall-DNS
+
+ This installs and configures both dnsmasq and bind9 as a Split DNS, for use with Zimbra 8.7.11 on a single host.
+ WARNING: No backup of existing configs are made.
+ The script leaves both DNS systems OFF. 
+ Run as follows:
+  sudo ./ZimbraEasyInstall-DNS
+ The script requires the /etc/hosts configuration to be correct.
+ And is only for IPv4
+
+########################
+
 # Zimbra
 In this Repository you will find different Zimbra Scripts for install Zimbra Collaboration on an automated way
 

@@ -1,0 +1,282 @@
+##### FOR DEBUGGING, uncomment #!/bin/bash -x
+#!/bin/bash
+
+#####
+##
+##  This script install dnsmasq AND Bind9 Servers,
+##  and leaves them turned off.
+##
+##  Call as follows:
+##  
+##      $ sudo ./ZimbraEasyInstall-DNS
+##
+##  It does NOT back up any previous configuration
+##
+##  Author: John Radley
+##  Email: jradxl AT gmail DOT com
+##  Version: 0.1
+##  Last Update: 2017-11-25
+##  
+#####
+
+ID=`id -u`
+if [ "x$ID" != "x0" ]; then
+  echo "Run as root!"
+  exit 1
+fi
+
+DATETIME=$(date +"%Y_%m_%d_%H_%M_%S")
+SERIAL=$(date +"%m%d%H%M%S")
+HOSTNAME=$(hostname -s)
+DOMAIN=$(hostname -d)
+SERVER_FQDN=$(hostname -f)
+
+echo ""
+echo "NOTE: After running this script, the DNS servers will be off."
+echo "NOTE: For Ubuntu 16.04, with BIND 9.10.3-P4-Ubuntu."
+echo ""
+echo "Installing for Hostname: "    $HOSTNAME
+echo "Installing for Domain: "      $DOMAIN
+echo "Installing for Server FQDN: " $SERVER_FQDN
+echo "Curent Date/Time: "           $DATETIME
+
+GOOD="no" ##Initial Value
+
+#######################
+## From Zimbra's ./install.sh. Thanks!
+#######################
+verifyIPv6() {
+    IP=$1
+    BAD_IP=`echo $IP | awk -F: '{ RES=0; SHORT=0; LSHORT=0; if (NF > 8) { RES=1 } else { for (BLK = 1; BLK <= NF; BLK++) { if ($BLK !~ /^[0-9a-fA-F]$|^[0-9a-fA-F][0-9a-fA-F]$|^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$|^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/) { if ($BLK == "") { if (SHORT > 0) { if ((BLK - LSHORT) != 1) { RES = 1 } } SHORT++; LSHORT = BLK } else { RES = 1 } } } } if ((NF == 3) && ($2 != "")) { RES = 1 } if (((SHORT > 2) && (NF != 3)) || ((SHORT == 2) && (!(($2 == "") || ($(NF-1) == ""))))) { RES = 1 } if ((NF - SHORT) > 6 ) { RES = 1 } if ((SHORT == 0) && (NF < 8)) { RES = 1 } print RES }'`
+    return ${BAD_IP}
+}
+
+verifyMixedIPv6() {
+    IP=$1
+    BAD_IP=`echo $IP | awk -F: '{ RES=0; SHORT=0; LSHORT=0; if (NF > 8) { RES=1 } else { for (BLK = 1; BLK <= NF; BLK++) { if ($BLK !~ /^[0-9a-fA-F]$|^[0-9a-fA-F][0-9a-fA-F]$|^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$|^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/) { if ($BLK == "") { if (SHORT > 0) { if ((BLK - LSHORT) != 1) { RES = 1 } } SHORT++; LSHORT = BLK } else { RES = 1 } } } } if ((NF == 3) && ($2 != "")) { RES = 1 } if (((SHORT > 2) && (NF != 3)) || ((SHORT == 2) && (!(($2 == "") || ($(NF-1) == ""))))) { RES = 1 } if ((NF - SHORT) > 6 ) { RES = 1 } if ((SHORT == 0) && (NF < 6)) { RES = 1 } print RES }'`
+    return ${BAD_IP}
+}
+
+verifyIPv4() {
+    IP=$1
+    BAD_IP=0;
+    if [ "`echo $IP | sed -ne 's/[0-9]//gp'`" != "..." ]
+    then
+        BAD_IP=1
+    else
+        BAD_IP=`echo $IP | awk -F. 'BEGIN {BAD_OCTET=0} { for (OCTET = 1; OCTET <= 4; OCTET++) { if (($OCTET !~ /^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/) || ((OCTET == 1) && ($OCTET == "0"))) { BAD_OCTET=1 } } } END { print BAD_OCTET }'`
+    fi
+    return ${BAD_IP}
+}
+########################
+
+#######################
+## Based on Zimbra's ./install.sh. Thanks!
+## IPv4 is only checked ###
+#######################
+checkRequired() 
+{
+	if [ -x "/usr/bin/getent" ]; then
+    	if ! /usr/bin/getent hosts 127.0.0.1 | perl -ne 'if (! m|^\d+\.\d+\.\d+\.\d+\s+localhost\s*| && ! m|^\d+\.\d+\.\d+\.\d+\s+localhost\.localdomain\s*|) { exit 11;}'; then
+            echo ""
+            echo "ERROR: Installation can not proceeed.  Please fix your /etc/hosts file"
+            echo "  to contain:"
+            echo "    127.0.0.1 localhost.localdomain localhost"
+            echo ""
+		    exit 1
+        fi
+
+		H_LINE=`sed -e 's/#.*//' /etc/hosts | awk '{ for (i = 2; i <=NF; i++) { if ($i ~ /^'$HOSTNAME'$/) { print $0; } } }'`
+		IP=`echo ${H_LINE} | awk '{ print $1 }'`
+		INVALID_IP=0
+
+        echo ""
+		echo "Address line found is: " $H_LINE
+		echo "IP Address found is: " $IP
+        echo ""
+
+		if [ "`echo ${IP} | tr -d '[0-9.]'`" = "" ]
+		then
+		    verifyIPv4 ${IP}
+		    if [ $? -ne 0 ]
+		    then
+		        INVALID_IP=1
+		    fi
+		fi
+
+		if [ `echo ${H_LINE} | awk '{ print NF }'` -lt 2 -o ${INVALID_IP} -eq 1 ]
+		then
+		    echo ""
+		    echo "  ERROR: Installation can not proceeed.  Please fix your /etc/hosts file"
+		    echo "  to contain:"
+		    echo ""
+		    echo "  <ip> <FQHN> <HN>"
+		    echo ""
+		    echo "  Where <IP> is the ip address of the host, "
+		    echo "  <FQHN> is the FULLY QUALIFIED host name, and"
+		    echo "  <HN> is the (optional) hostname-only portion"
+		    echo ""
+		    exit 1
+		fi
+  		GOOD="yes"
+	fi
+}
+
+echo "Checking /etc/hosts and IP address..."
+checkRequired
+
+if [ $GOOD != "yes" ]
+then
+    echo ""
+    echo "ERROR: In /etc/hosts and/or IP address..."
+	echo "Cannot continue..."
+    echo ""
+	exit 1
+fi
+echo "Checked OK"
+ 
+A=`echo ${IP} | awk -F"." '$0=$1;'`
+B=`echo ${IP} | awk -F"." '$0=$2;'`
+C=`echo ${IP} | awk -F"." '$0=$3;'`
+D=`echo ${IP} | awk -F"." '$0=$4;'`
+
+##Construct reverse like "72.1.10.in-addr.arpa"
+IP2=`echo $A"."$B"."$C"."$D`
+ 
+if [ $IP != $IP2 ]
+then
+    echo ""
+	echo "IPv4 Parsing Error. Cannot continue."
+    echo ""
+	exit 1
+fi
+
+REV1=`echo $C"."$B"."$A".in-addr.arpa"`
+REV2=`echo $C"."$B"."$A`
+echo "Reverse arpa is: " $REV1
+
+echo "Installing Bind9 DNS Server"
+apt-get update &&  apt-get install -y bind9 bind9utils bind9-doc
+
+## Limit Bind9 to ipV4
+rm -f /etc/default/bind9
+cat <<EOF > /etc/default/bind9
+# run resolvconf?
+RESOLVCONF=no
+# startup options for the server
+OPTIONS="-4 -u bind"
+EOF
+
+## Protect /etc/resolv.conf from changes
+chattr -i /etc/resolv.conf
+rm -f /etc/resolv.conf
+cat <<EOF > /etc/resolv.conf
+nameserver 127.0.0.1
+EOF
+chattr +i /etc/resolv.conf
+
+rm -f /etc/bind/named.conf.options
+cat <<EOF > /etc/bind/named.conf.options
+acl trusted {
+	127.0.0.1;
+};
+
+options {
+	directory "/var/cache/bind";
+	listen-on port 53 { trusted; };
+	allow-transfer { none; };
+	allow-query { trusted; };
+	recursion yes;
+	notify no;
+	forwarders {
+	  8.8.8.8;
+	  8.8.4.4;
+	};
+	dnssec-validation auto;
+	auth-nxdomain no; # conform to RFC1035
+	#listen-on-v6 { any; };
+};
+EOF
+
+rm -f /var/log/named/named.log
+rm -f /etc/bind/named.conf.local
+cat <<EOF > /etc/bind/named.conf.local
+zone "$DOMAIN" {
+        type master;
+        file "/etc/bind/db.$DOMAIN";
+};
+
+zone "$REV1" {
+        type master;
+        file "/etc/bind/db.$REV2";
+};
+EOF
+
+rm -f /etc/bind/db.$DOMAIN
+cat <<EOF > /etc/bind/db.$DOMAIN
+\$TTL  604800
+@      IN      SOA   $HOSTNAME.$DOMAIN. postmaster.$DOMAIN. (
+                        $SERIAL    ; Serial
+                        604800     ; Refresh
+                        86400      ; Retry
+                        2419200    ; Expire
+                        604800 )   ; Negative Cache TTL
+;
+            IN      NS      $HOSTNAME
+            IN      A       $IP
+            IN      MX      10     mail
+$HOSTNAME   IN      A       $IP
+pop         IN      A       $IP
+imap        IN      A       $IP
+mail        IN      A       $IP
+smtp        IN      A       $IP
+www         IN      A       $IP
+$DOMAIN.    IN      TXT     "v=spf1 mx a ~all"
+EOF
+
+rm -f /etc/bind/db.$REV2
+cat <<EOF > /etc/bind/db.$REV2
+\$TTL 172800
+\$ORIGIN $REV1.
+@	IN	SOA   $HOSTNAME.$DOMAIN. hostmaster.$DOMAIN. 1 172800 900 1209600 3600
+	IN	NS    $HOSTNAME.$DOMAIN.
+$D	IN	PTR   mail.$DOMAIN.
+EOF
+
+echo "Installing dnsmasq DNS Server"
+apt-get update &&   apt-get install -y dnsmasq
+
+echo "Configuring DNS Server"
+mv /etc/dnsmasq.conf /etc/dnsmasq.conf.old_$DATETIME
+
+cat <<EOF >>/etc/dnsmasq.conf
+server=8.8.8.8
+server=8.8.4.4
+listen-address=127.0.0.1
+domain=$DOMAIN
+mx-host=$DOMAIN,$HOSTNAME.$DOMAIN,10
+no-resolv
+no-hosts
+no-poll
+address=/$DOMAIN/$IP
+address=/$HOSTNAME.$DOMAIN/$IP
+log-queries=extra
+log-facility=/var/log/dnsmasq.log
+log-async=10
+except-interface=lo
+bind-interfaces
+interface=eth0
+bogus-priv
+localise-queries
+all-servers
+domain-needed
+EOF
+
+##End of Script
+echo "DNS Servers are off."
+systemctl stop dnsmasq
+systemctl stop bind9
+echo ""
+echo "You now have DNSMASQ and BIND9 installed. Start the one you want!"
+echo ""
+
