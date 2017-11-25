@@ -13,6 +13,9 @@ Added ZimbraEasyInstall-DNS
  The script requires the /etc/hosts configuration to be correct.
  And is only for IPv4
 
+ My copies of named.conf and named.conf.log and available if you want file logging. You'll need to install yourself.
+ Other configs of Bind9 are unchanged.
+
 ########################
 
 # Zimbra
